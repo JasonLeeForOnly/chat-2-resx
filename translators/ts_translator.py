@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import logging
 import glob
 from .base_translator import BaseTranslator
@@ -7,6 +8,20 @@ from .base_translator import BaseTranslator
 class TsTranslator(BaseTranslator):
     def __init__(self, config, translation_service):
         super().__init__(config, translation_service)
+        self.prompts = self._load_prompts()
+    
+    def _load_prompts(self):
+        """加载系统提示词配置"""
+        try:
+            config_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config')
+            prompts_file = os.path.join(config_dir, 'prompts.json')
+            
+            with open(prompts_file, 'r', encoding='utf-8') as f:
+                prompts = json.load(f)
+            return prompts.get('ts_translator', {})
+        except Exception as e:
+            logging.error(f"加载提示词配置失败: {str(e)}")
+            return {}
     
     def parse_file(self, file_path):
         """简单读取TS文件内容，不进行复杂解析"""
@@ -58,6 +73,9 @@ class TsTranslator(BaseTranslator):
     def translate_file(self, file_path, output_path, progress_callback=None):
         """翻译TS文件并保存"""
         try:
+            # 重置取消标志
+            self.translation_service.reset_cancel()
+            
             content = self.parse_file(file_path)
             if not content:
                 return False, "文件读取失败"
@@ -67,54 +85,50 @@ class TsTranslator(BaseTranslator):
                 progress_callback(10, 1, 3, "正在读取文件...")
             
             # 检查是否取消
-            if self.cancel_translation:
+            if self.translation_service.cancel_translation:
                 return False, "翻译已取消"
             
             # 获取目标语言
             target_lang = self.config.get("target_lang", "英语")
             
-            # 构建翻译提示
-            prompt = f"""
-            请将以下TypeScript/JavaScript语言文件翻译成{target_lang}。
-            这是一个语言资源文件，只需要翻译字符串值，保持键名和文件结构不变。
-            请确保翻译后的代码仍然是有效的TypeScript/JavaScript代码。
-            
-            原始文件内容:
-            {content}
-            """
+            # 从配置加载系统提示词
+            system_prompt = self.prompts.get('translate_file', {}).get('system_prompt', {}).get('zh', '')
+            if system_prompt:
+                system_prompt = system_prompt.replace('{target_lang}', target_lang)
             
             # 更新进度
             if progress_callback:
                 progress_callback(30, 2, 3, "正在翻译文件...")
             
             # 检查是否取消
-            if self.cancel_translation:
+            if self.translation_service.cancel_translation:
                 return False, "翻译已取消"
             
             # 使用翻译服务翻译整个文件
-            translated_content = self.translation_service.translate_text(prompt, target_lang)
+            translated_content = self.translation_service.translate_text(
+                content, 
+                target_lang,
+                system_prompt=system_prompt
+            )
             
+            # 检查是否取消
+            if self.translation_service.cancel_translation:
+                return False, "翻译已取消"
+                
             if not translated_content:
                 return False, "翻译失败，请检查API设置"
             
             # 提取翻译后的代码部分（可能包含在代码块中）
-            code_pattern = r'```(?:javascript|typescript|js|ts)?\s*([\s\S]*?)\s*```'
-            code_match = re.search(code_pattern, translated_content)
-            
-            if code_match:
-                translated_content = code_match.group(1).strip()
-            else:
-                # 尝试提取整个响应作为代码
-                # 移除可能的解释性文本
-                translated_content = re.sub(r'^.*?(?=export|module\.exports|const|let|var)', '', translated_content, flags=re.DOTALL)
-                translated_content = re.sub(r'(?<=;)[\s\S]*$', '', translated_content)
-            
+            # 去掉包裹的 ```json 标记
+            # translated_content = re.sub(r"^```json|```$", "", translated_content.strip(), flags=re.MULTILINE).strip()
+            translated_content = re.sub(r"^```(json|typescript|ts|js|javascript|tex)|```$", "", translated_content.strip(), flags=re.MULTILINE).strip()
+
             # 更新进度
             if progress_callback:
                 progress_callback(80, 3, 3, "正在保存翻译结果...")
             
             # 检查是否取消
-            if self.cancel_translation:
+            if self.translation_service.cancel_translation:
                 return False, "翻译已取消"
             
             # 确保输出目录存在
@@ -136,6 +150,9 @@ class TsTranslator(BaseTranslator):
     
     def scan_folder(self, folder_path, filename_pattern, target_lang, progress_callback=None):
         """扫描文件夹并翻译所有匹配的文件"""
+        # 重置取消标志
+        self.translation_service.reset_cancel()
+        
         # 查找所有匹配的文件
         search_pattern = os.path.join(folder_path, "**", filename_pattern)
         matching_files = glob.glob(search_pattern, recursive=True)
@@ -147,11 +164,9 @@ class TsTranslator(BaseTranslator):
         translated_files = 0
         failed_files = 0
         
-        self.cancel_translation = False
-        
         for i, file_path in enumerate(matching_files):
             # 检查是否取消
-            if self.cancel_translation:
+            if self.translation_service.cancel_translation:
                 return False, "翻译已取消"
             
             # 生成输出文件路径
@@ -179,4 +194,4 @@ class TsTranslator(BaseTranslator):
                 failed_files += 1
                 logging.error(f"翻译文件 {file_path} 失败: {message}")
         
-        return True, f"文件夹翻译完成!\n成功翻译: {translated_files} 个文件\n失败: {failed_files} 个文件" 
+        return True, f"文件夹翻译完成!\n成功翻译: {translated_files} 个文件\n失败: {failed_files} 个文件"

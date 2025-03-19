@@ -16,7 +16,7 @@ class ChatGPTService(TranslationService):
         if self.api_base.endswith('/'):
             self.api_base = self.api_base[:-1]
 
-    def translate_text(self, text, target_lang):
+    def translate_text(self, text, target_lang, system_prompt=None):
         if not text.strip():
             return ""
             
@@ -25,6 +25,11 @@ class ChatGPTService(TranslationService):
             return None
         
         try:
+            # 检查是否已取消
+            if self.cancel_translation:
+                self.log_info("翻译已取消")
+                return None
+            
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}"
@@ -32,10 +37,12 @@ class ChatGPTService(TranslationService):
             
             messages = []
             # 添加系统提示词
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
             if self.system_prompt.strip():
                 messages.append({"role": "system", "content": self.system_prompt})
                 
-            prompt = f"请将以下文本翻译成{target_lang}，只需要返回翻译后的文本，不需要解释：\n\n{text}"
+            prompt = f"请将以下文本翻译成{target_lang}：\n\n{text}"
             messages.append({"role": "user", "content": prompt})
             
             payload = {
@@ -54,17 +61,40 @@ class ChatGPTService(TranslationService):
                 safe_headers["Authorization"] = "Bearer ********"
                 self.log_info(f"线程 {thread_id} - ChatGPT请求: URL={self.api_base}/chat/completions, Headers={safe_headers}, Payload={payload}")
             
-            response = requests.post(f"{self.api_base}/chat/completions", headers=headers, json=payload)
+            # 添加超时和取消检查
+            timeout = 60  # 设置60秒超时
+            
+            # 使用带超时的请求
+            response = requests.post(
+                f"{self.api_base}/chat/completions", 
+                headers=headers, 
+                json=payload,
+                timeout=timeout
+            )
+            
+            # 再次检查是否已取消
+            if self.cancel_translation:
+                self.log_info("翻译已取消")
+                return None
+            
             response.raise_for_status()
             result = response.json()
             
             if self.enable_logging:
                 self.log_info(f"线程 {thread_id} - ChatGPT响应: {result}")
             
+            # 最后一次检查是否已取消
+            if self.cancel_translation:
+                self.log_info("翻译已取消")
+                return None
+            
             if "choices" in result and len(result["choices"]) > 0:
                 return result["choices"][0]["message"]["content"].strip()
             else:
                 return None
+        except requests.exceptions.Timeout:
+            self.log_error(f"线程 {thread_id} - ChatGPT请求超时")
+            return None
         except Exception as e:
             error_msg = f"线程 {thread_id} - ChatGPT翻译过程中出现错误: {str(e)}"
             self.log_error(error_msg)
@@ -147,4 +177,58 @@ class ChatGPTService(TranslationService):
         except Exception as e:
             error_msg = f"批量翻译过程中出现错误: {str(e)}"
             self.log_error(error_msg)
-            return {} 
+            return {}
+
+    def translate_with_chatgpt(self, text, target_lang, system_prompt=None):
+        """
+        使用ChatGPT翻译文本
+        
+        Args:
+            text (str): 要翻译的文本
+            target_lang (str): 目标语言代码
+            system_prompt (str, optional): 用于翻译的系统提示
+            
+        Returns:
+            str: 翻译后的文本
+        """
+        # 构建消息列表
+        messages = []
+        
+        # 添加系统提示(如果有)
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        
+        # 添加用户消息
+        messages.append({"role": "user", "content": f"请将以下文本翻译成{target_lang}:\n\n{text}"})
+        
+        # 调用ChatGPT API
+        # ... 现有代码 ...
+        
+        return translated_text
+
+    def translate_with_chatgpt(self, text, target_lang, system_prompt=None):
+        """
+        使用ChatGPT翻译文本
+        
+        Args:
+            text (str): 要翻译的文本
+            target_lang (str): 目标语言代码
+            system_prompt (str, optional): 用于翻译的系统提示
+            
+        Returns:
+            str: 翻译后的文本
+        """
+        # 构建消息列表
+        messages = []
+        
+        # 添加系统提示(如果有)
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        
+        # 添加用户消息
+        messages.append({"role": "user", "content": f"请将以下文本翻译成{target_lang}:\n\n{text}"})
+        
+        # 调用ChatGPT API
+        # ... 现有代码 ...
+        
+        return translated_text 

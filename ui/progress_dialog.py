@@ -2,12 +2,18 @@ import tkinter as tk
 from tkinter import ttk
 
 class ProgressDialog:
-    def __init__(self, parent, title="处理中"):
-        self.dialog = tk.Toplevel(parent)
-        self.dialog.title(title)
+    def __init__(self, parent, translator=None):
+        self.parent = parent
+        self.translator = translator
+        self.dialog = None
+        self.setup_ui()
+    
+    def setup_ui(self):
+        self.dialog = tk.Toplevel(self.parent)
+        self.dialog.title("处理中")
         self.dialog.geometry("400x170")
         self.dialog.resizable(False, False)
-        self.dialog.transient(parent)
+        self.dialog.transient(self.parent)
         self.dialog.grab_set()
         
         # 居中显示
@@ -36,7 +42,6 @@ class ProgressDialog:
         self.progress_bar.pack(pady=5, padx=20)
         
         # 取消按钮
-        self.cancel_callback = None
         self.cancel_button = ttk.Button(
             self.dialog, 
             text="取消", 
@@ -63,10 +68,39 @@ class ProgressDialog:
     
     def on_cancel(self):
         """取消操作"""
-        if self.cancel_callback:
+        # 调用取消翻译方法
+        self.cancel_translation()
+        
+        # 如果有额外的回调，也调用它
+        if hasattr(self, 'cancel_callback') and self.cancel_callback:
             self.cancel_callback()
     
     def close(self):
         """关闭对话框"""
-        self.dialog.grab_release()
-        self.dialog.destroy() 
+        if self.dialog:
+            self.dialog.grab_release()
+            self.dialog.destroy()
+    
+    def cancel_translation(self):
+        """取消翻译过程"""
+        if self.translator and not isinstance(self.translator, str):
+            try:
+                # 直接调用翻译器的cancel方法
+                self.translator.cancel()
+                # 同时调用翻译服务的cancel方法
+                if hasattr(self.translator, 'translation_service'):
+                    self.translator.translation_service.cancel()
+                    
+                self.status_label.config(text="正在取消翻译...")
+                self.cancel_button.config(state=tk.DISABLED)
+            except Exception as e:
+                import logging
+                logging.error(f"取消翻译时出错: {str(e)}")
+        else:
+            # 如果translator不是有效对象，只更新UI
+            self.status_label.config(text="正在取消翻译...")
+            self.cancel_button.config(state=tk.DISABLED)
+            
+            # 记录错误信息
+            import logging
+            logging.error(f"无效的翻译器对象: {type(self.translator)}") 

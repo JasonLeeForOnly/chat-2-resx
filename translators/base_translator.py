@@ -41,6 +41,10 @@ class BaseTranslator(abc.ABC):
     def cancel(self):
         """取消翻译过程"""
         self.cancel_translation = True
+        # 同时取消翻译服务
+        if hasattr(self, 'translation_service'):
+            self.translation_service.cancel()
+        logging.info("翻译取消请求已发送")
     
     def get_language_code(self, lang_name):
         """获取语言代码"""
@@ -61,4 +65,19 @@ class BaseTranslator(abc.ABC):
             "泰语": "TH",
             "乌克兰语": "UK",
         }
-        return languages.get(lang_name, "EN") 
+        return languages.get(lang_name, "EN")
+    
+    def translate(self, text, target_lang, system_prompt=None):
+        """
+        翻译文本到目标语言
+        
+        Args:
+            text (str): 要翻译的文本
+            target_lang (str): 目标语言代码
+            system_prompt (str, optional): 用于翻译的系统提示
+            
+        Returns:
+            str: 翻译后的文本
+        """
+        # 这是一个基础方法，应该被子类覆盖
+        raise NotImplementedError("子类必须实现translate方法") 
